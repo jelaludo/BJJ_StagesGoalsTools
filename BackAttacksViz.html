@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BJJ Back Attacks — Factored Markov Visualization</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0c0c0c;
+      color: #d0d0d0;
+      font-family: 'Georgia', serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ===== Header ===== */
+    .header {
+      padding: 15px 20px;
+      border-bottom: 1px solid #222;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header-left h1 {
+      font-size: 20px;
+      color: #e0e0e0;
+      letter-spacing: 1px;
+    }
+    .header-left .subtitle {
+      font-size: 11px;
+      color: #555;
+      margin-top: 2px;
+    }
+    .header-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .header-btn {
+      background: none;
+      border: 1px solid #444;
+      color: #999;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      font-family: inherit;
+      transition: all 0.3s;
+    }
+    .header-btn:hover { border-color: #888; color: #fff; }
+    #btn-play {
+      border: 1px solid #888;
+      color: #ddd;
+      padding: 6px 16px;
+    }
+    #btn-play:hover { border-color: #bbb; color: #fff; }
+
+    /* ===== Main Layout ===== */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 15px;
+      gap: 12px;
+    }
+
+    #stages-container {
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+      flex: 1;
+      position: relative;
+    }
+
+    /* ===== Heat Map Overlay ===== */
+    #heat-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      z-index: 5;
+      border-radius: 6px;
+      transition: background 0.4s ease;
+      mix-blend-mode: screen;
+    }
+
+    /* ===== Stage Columns ===== */
+    .stage-column {
+      flex: 1;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px;
+      background: #111;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.5s, box-shadow 0.5s;
+    }
+    .stage-column.stage-active {
+      border-color: #444;
+      box-shadow: 0 0 8px rgba(255,255,255,0.03);
+    }
+    .stage-name {
+      text-align: center;
+      font-weight: bold;
+      color: #ccc;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .stage-goal {
+      text-align: center;
+      font-size: 10px;
+      color: #555;
+      margin-bottom: 14px;
+      line-height: 1.3;
+    }
+
+    /* ===== State Labels ===== */
+    .states-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 14px;
+    }
+    .state-label {
+      padding: 7px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      width: 88%;
+      text-align: center;
+      transition: all 0.3s;
+    }
+    .state-dim {
+      background: #151515;
+      border: 1px solid #252525;
+      color: #444;
+    }
+    /* Controlled uses inline styles for decay color — these are fallback */
+    .state-active.state-controlled {
+      background: #1a2e1a;
+      border: 1px solid #4a8a4a;
+      color: #6abf6a;
+      font-weight: bold;
+    }
+    .state-active.state-contested {
+      background: #1e1e1e;
+      border: 1px solid #666;
+      color: #bbb;
+      font-weight: bold;
+    }
+    .state-active.state-lost {
+      background: #2e1a1a;
+      border: 1px solid #8a4a4a;
+      color: #bf6a6a;
+      font-weight: bold;
+    }
+    .state-arrow {
+      color: #333;
+      font-size: 9px;
+    }
+
+    /* ===== Tools ===== */
+    .tools-section {
+      border-top: 1px solid #222;
+      padding-top: 8px;
+      margin-top: auto;
+    }
+    .tools-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+    }
+    .tool {
+      border: 1px solid #282828;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 9px;
+      color: #444;
+      transition: all 0.3s;
+    }
+    .tool-active {
+      border-color: #666;
+      color: #e0e0e0;
+      background: #252525;
+      box-shadow: 0 0 4px rgba(255,255,255,0.06);
+    }
+
+    /* ===== Finish Meter ===== */
+    .finish-column {
+      width: 80px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px 8px;
+      background: #111;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .finish-label {
+      text-align: center;
+      font-weight: bold;
+      color: #888;
+      font-size: 10px;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+    .finish-meter-container {
+      flex: 1;
+      width: 30px;
+      background: #0a0a0a;
+      border-radius: 3px;
+      position: relative;
+      border: 1px solid #252525;
+      min-height: 170px;
+    }
+    #finish-bar {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(to top, #8b2020, #8b7020, #2d7a2d);
+      border-radius: 0 0 2px 2px;
+      transition: height 0.3s;
+    }
+    #finish-threshold {
+      position: absolute;
+      bottom: 25%;
+      width: 120%;
+      left: -10%;
+      border-top: 1px dashed #555;
+      transition: bottom 0.3s;
+    }
+    #finish-pct {
+      margin-top: 8px;
+      font-size: 20px;
+      font-weight: bold;
+      color: #ccc;
+    }
+    .finish-detail {
+      font-size: 8px;
+      color: #555;
+      margin-top: 2px;
+      text-align: center;
+    }
+
+    /* ===== Terminal Animations ===== */
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: none; }
+      50% { box-shadow: 0 0 20px rgba(106, 191, 106, 0.4); }
+    }
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: none; }
+      50% { box-shadow: 0 0 20px rgba(191, 106, 106, 0.4); }
+    }
+    .terminal-finish { animation: pulse-green 1s ease-in-out 3; }
+    .terminal-bail { animation: pulse-red 1s ease-in-out 3; }
+
+    .terminal-label {
+      display: none;
+      font-size: 11px;
+      font-weight: bold;
+      margin-top: 6px;
+      text-align: center;
+    }
+    .terminal-label.visible { display: block; }
+    .terminal-label.finish-label-text { color: #6abf6a; }
+    .terminal-label.bail-label-text { color: #bf6a6a; }
+
+    /* ===== Auxiliary Footer ===== */
+    .auxiliary-footer {
+      border: 1px dashed #333;
+      border-radius: 6px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.3s;
+    }
+    .auxiliary-footer .aux-name {
+      color: #666;
+      font-weight: bold;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .auxiliary-footer .aux-desc {
+      font-size: 10px;
+      color: #444;
+    }
+    .auxiliary-footer .aux-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      margin-left: auto;
+    }
+    .auxiliary-footer .tool {
+      font-size: 8px;
+    }
+    .auxiliary-warning {
+      border-color: #888;
+    }
+    .auxiliary-warning .aux-name { color: #aaa; }
+    .auxiliary-warning .aux-desc { color: #888; }
+    .auxiliary-active {
+      border-style: solid;
+      border-color: #ccc;
+    }
+    .auxiliary-active .aux-name { color: #e0e0e0; }
+    .auxiliary-active .aux-desc { color: #bbb; }
+    .auxiliary-active .tool { color: #ccc; border-color: #555; background: #222; }
+
+    /* ===== Event Log ===== */
+    .event-log-container {
+      border: 1px solid #222;
+      border-radius: 6px;
+      background: #0a0a0a;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 8px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .event-log-container::-webkit-scrollbar { width: 6px; }
+    .event-log-container::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    .log-entry {
+      padding: 2px 0;
+      border-bottom: 1px dashed #1a1a1a;
+      color: #888;
+    }
+    .log-entry.log-finish { color: #6abf6a; font-weight: bold; }
+    .log-entry.log-bail { color: #bf6a6a; font-weight: bold; }
+    .log-entry.log-prob { color: #666; }
+    .log-entry.log-cascade { font-style: italic; }
+
+    /* ===== Settings Modal ===== */
+    #settings-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+    .settings-panel {
+      background: #151515;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 25px;
+      min-width: 350px;
+      max-width: 400px;
+    }
+    .settings-panel h2 {
+      font-size: 16px;
+      color: #ccc;
+      margin-bottom: 20px;
+    }
+    .setting-row {
+      margin-bottom: 15px;
+    }
+    .setting-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #aaa;
+      margin-bottom: 4px;
+    }
+    .setting-value {
+      color: #fff;
+      font-weight: bold;
+    }
+    .settings-panel input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: #333;
+      outline: none;
+    }
+    .settings-panel input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #ccc;
+      cursor: pointer;
+      border: 2px solid #0c0c0c;
+    }
+
+    /* ===== Color Legend ===== */
+    .legend {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      font-size: 10px;
+      color: #555;
+      padding: 4px 0;
+    }
+    .legend span { display: flex; align-items: center; gap: 4px; }
+    .legend-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+    }
+    .legend-dot.ctrl { background: #6abf6a; }
+    .legend-dot.cont { background: #bbb; }
+    .legend-dot.lost { background: #bf6a6a; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <h1>BJJ Back Attacks</h1>
+      <div class="subtitle">V20190507 by Gerald · Source: J Danaher</div>
+    </div>
+    <div class="header-right">
+      <button class="header-btn" id="btn-gear" onclick="toggleSettings()">⚙</button>
+      <button class="header-btn" id="btn-play" onclick="state.running ? stopSimulation() : startSimulation()">▶</button>
+      <button class="header-btn" id="btn-step" onclick="stepSimulation()">⏭</button>
+      <button class="header-btn" id="btn-reset" onclick="resetSimulation()" style="display:none;">↺</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <div id="stages-container">
+      <div id="heat-overlay"></div>
+
+      <!-- Stage 0: Grip Fight -->
+      <div class="stage-column" id="stage-0">
+        <div class="stage-name">1. Grip Fight</div>
+        <div class="stage-goal">Advantageous grips,<br>shoulder control,<br>negate one hand</div>
+        <div class="states-stack">
+          <div class="state-label state-active state-controlled" id="state-0-controlled">Controlled</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-0-contested">Contested</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-0-lost">Lost</div>
+        </div>
+        <div class="tools-section">
+          <div class="tools-wrap" id="tools-0">
+            <span class="tool">Dynamic grips</span>
+            <span class="tool">Cross-grip</span>
+            <span class="tool">Always a threat</span>
+            <span class="tool">Leg to block arm</span>
+            <span class="tool">Weight on arm</span>
+            <span class="tool">"magic grip"</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stage 1: Hip Control -->
+      <div class="stage-column" id="stage-1">
+        <div class="stage-name">2. Hip Control</div>
+        <div class="stage-goal">Control opponent's hips,<br>don't let him cross<br>your ankle/knee</div>
+        <div class="states-stack">
+          <div class="state-label state-active state-controlled" id="state-1-controlled">Controlled</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-1-contested">Contested</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-1-lost">Lost</div>
+        </div>
+        <div class="tools-section">
+          <div class="tools-wrap" id="tools-1">
+            <span class="tool">Dynamic hooks</span>
+            <span class="tool">Switch left-right</span>
+            <span class="tool">Body lock</span>
+            <span class="tool">"single back"</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stage 2: Head Control -->
+      <div class="stage-column" id="stage-2">
+        <div class="stage-name">3. Head Control</div>
+        <div class="stage-goal">Control head between<br>your head and<br>strangle arm</div>
+        <div class="states-stack">
+          <div class="state-label state-active state-controlled" id="state-2-controlled">Controlled</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-2-contested">Contested</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-2-lost">Lost</div>
+        </div>
+        <div class="tools-section">
+          <div class="tools-wrap" id="tools-2">
+            <span class="tool">Use own head</span>
+            <span class="tool">Hand on head</span>
+            <span class="tool">Close the circle</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stage 3: Strangulation -->
+      <div class="stage-column" id="stage-3">
+        <div class="stage-name">4. Strangulation</div>
+        <div class="stage-goal">Sink it deep<br>past the chin,<br>tap/pass out</div>
+        <div class="states-stack">
+          <div class="state-label state-active state-controlled" id="state-3-controlled">Controlled</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-3-contested">Contested</div>
+          <div class="state-arrow">⇅</div>
+          <div class="state-label state-dim" id="state-3-lost">Lost</div>
+        </div>
+        <div class="tools-section">
+          <div class="tools-wrap" id="tools-3">
+            <span class="tool">Attack up-down</span>
+            <span class="tool">Flat fist</span>
+            <span class="tool">Switch left-right</span>
+            <span class="tool">Finger crawl</span>
+            <span class="tool">Mixed tempo</span>
+            <span class="tool">Hide the hand</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Finish Meter -->
+      <div class="finish-column">
+        <div class="finish-label">FINISH</div>
+        <div class="finish-meter-container">
+          <div id="finish-bar"></div>
+          <div id="finish-threshold"></div>
+        </div>
+        <div id="finish-pct">100%</div>
+        <div class="finish-detail" id="finish-detail">4 ctrl</div>
+        <div class="terminal-label finish-label-text" id="label-finish">★ FINISH</div>
+        <div class="terminal-label bail-label-text" id="label-bail">✕ BAIL</div>
+      </div>
+
+    </div>
+
+    <!-- Stage 5: Auxiliary -->
+    <div class="auxiliary-footer" id="auxiliary-footer">
+      <div class="aux-name">5. Switch to Auxiliary</div>
+      <div class="aux-desc">Below threshold → accept back attack failed, gain tempo on next position</div>
+      <div class="aux-tools">
+        <span class="tool">Kimura grip</span>
+        <span class="tool">Shoulder control</span>
+        <span class="tool">Lockdown</span>
+        <span class="tool">Gift Wrap</span>
+        <span class="tool">Race to base</span>
+        <span class="tool">Triangle</span>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+      <span><span class="legend-dot ctrl"></span> Controlled (decays)</span>
+      <span><span class="legend-dot cont"></span> Contested</span>
+      <span><span class="legend-dot lost"></span> Lost</span>
+      <span><span class="tool tool-active" style="font-size:9px;">tool</span> Active</span>
+    </div>
+
+    <!-- Event Log -->
+    <div class="event-log-container" id="event-log"></div>
+
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" onclick="if(event.target===this)toggleSettings()">
+    <div class="settings-panel" onclick="event.stopPropagation()">
+      <h2>Settings</h2>
+
+      <div class="setting-row">
+        <div class="setting-header">
+          <span>Simulation Speed</span>
+          <span class="setting-value" id="val-speed">3x</span>
+        </div>
+        <input type="range" id="slider-speed" min="0.5" max="8" step="0.5" value="3"
+          oninput="updateSetting('speed', this.value, document.getElementById('val-speed'))">
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-header">
+          <span>Attacker Skill</span>
+          <span class="setting-value" id="val-attacker">6</span>
+        </div>
+        <input type="range" id="slider-attacker" min="1" max="10" step="1" value="6"
+          oninput="updateSetting('attackerSkill', this.value, document.getElementById('val-attacker'))">
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-header">
+          <span>Defender Skill</span>
+          <span class="setting-value" id="val-defender">9</span>
+        </div>
+        <input type="range" id="slider-defender" min="1" max="10" step="1" value="9"
+          oninput="updateSetting('defenderSkill', this.value, document.getElementById('val-defender'))">
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-header">
+          <span>Cascade Strength</span>
+          <span class="setting-value" id="val-cascade">0.06</span>
+        </div>
+        <input type="range" id="slider-cascade" min="0" max="0.3" step="0.02" value="0.06"
+          oninput="updateSetting('cascadeStrength', this.value, document.getElementById('val-cascade'))">
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-header">
+          <span>Bail Threshold</span>
+          <span class="setting-value" id="val-bail">10%</span>
+        </div>
+        <input type="range" id="slider-bail" min="0.02" max="0.30" step="0.02" value="0.10"
+          oninput="updateSetting('bailThreshold', this.value, document.getElementById('val-bail'))">
+      </div>
+    </div>
+  </div>
+
+<script>
+// ===== Position Data =====
+const positions = {
+  backAttacks: {
+    title: "BJJ Back Attacks",
+    subtitle: "V20190507 by Gerald",
+    source: "J Danaher",
+    stages: [
+      {
+        name: "Grip Fight",
+        goal: "Advantageous grips, shoulder control, negate one hand",
+        tools: ["Dynamic grips", "Cross-grip", "Always a threat", "Leg to block arm", "Weight on arm", "\"magic grip\""],
+        transitions: {
+          controlled_to_contested: 0.14,
+          contested_to_controlled: 0.28,
+          contested_to_lost: 0.08,
+          lost_to_contested: 0.20
+        },
+        cascadesTo: [1, 2]
+      },
+      {
+        name: "Hip Control",
+        goal: "Control opponent's hips, don't let him cross your ankle/knee",
+        tools: ["Dynamic hooks", "Switch left-right", "Body lock", "\"single back\""],
+        transitions: {
+          controlled_to_contested: 0.12,
+          contested_to_controlled: 0.25,
+          contested_to_lost: 0.10,
+          lost_to_contested: 0.18
+        },
+        cascadesTo: [2, 3]
+      },
+      {
+        name: "Head Control",
+        goal: "Control opponent's head between your head and strangle arm",
+        tools: ["Use own head", "Hand on head", "Close the circle"],
+        transitions: {
+          controlled_to_contested: 0.16,
+          contested_to_controlled: 0.22,
+          contested_to_lost: 0.10,
+          lost_to_contested: 0.15
+        },
+        cascadesTo: [3]
+      },
+      {
+        name: "Strangulation",
+        goal: "Sink it deep past the chin, tap/pass out",
+        tools: ["Attack up-down", "Flat fist", "Switch left-right", "Finger crawl", "Mixed tempo", "Hide the hand"],
+        transitions: {
+          controlled_to_contested: 0.10,
+          contested_to_controlled: 0.20,
+          contested_to_lost: 0.12,
+          lost_to_contested: 0.14
+        },
+        cascadesTo: []
+      }
+    ],
+    auxiliary: {
+      name: "Switch to Auxiliary",
+      description: "Accept back attack didn't work, gain tempo on next position",
+      tools: ["Kimura grip", "Shoulder control", "Lockdown", "Gift Wrap", "Race to base", "Triangle"],
+      threshold: 0.10
+    },
+    cascadeStrength: 0.06,
+    finishWeights: {
+      controlled: 1.0,
+      contested: 0.5,
+      lost: 0.15
+    },
+    // Decay: how many ticks until controlled fully decays visually
+    controlDecayTicks: 30
+  }
+};
+
+// ===== Simulation State =====
+const state = {
+  stages: [],
+  tickCount: 0,
+  finishProb: 1.0,
+  consecutiveFinishTicks: 0,
+  running: false,
+  terminated: false,
+  intervalId: null,
+  settings: {
+    speed: 3,
+    attackerSkill: 6,
+    defenderSkill: 9,
+    cascadeStrength: 0.06,
+    bailThreshold: 0.10
+  }
+};
+
+// ===== Decay Color Interpolation =====
+// Green (#6abf6a) → Amber (#bf9a4a) → Red (#bf6a6a)
+function getDecayColor(t) {
+  // t: 0 = fresh green, 1 = fully decayed red
+  t = Math.max(0, Math.min(1, t));
+  let r, g, b;
+  if (t < 0.5) {
+    // Green to amber
+    const s = t * 2;
+    r = Math.round(106 + (191 - 106) * s);
+    g = Math.round(191 + (154 - 191) * s);
+    b = Math.round(106 + (74 - 106) * s);
+  } else {
+    // Amber to red
+    const s = (t - 0.5) * 2;
+    r = Math.round(191 + (191 - 191) * s);
+    g = Math.round(154 + (106 - 154) * s);
+    b = Math.round(74 + (106 - 74) * s);
+  }
+  return { r, g, b };
+}
+
+function getDecayBg(t) {
+  const c = getDecayColor(t);
+  return `rgb(${Math.round(c.r * 0.15)}, ${Math.round(c.g * 0.15)}, ${Math.round(c.b * 0.15)})`;
+}
+
+function getDecayBorder(t) {
+  const c = getDecayColor(t);
+  return `rgb(${Math.round(c.r * 0.55)}, ${Math.round(c.g * 0.55)}, ${Math.round(c.b * 0.55)})`;
+}
+
+function getDecayText(t) {
+  const c = getDecayColor(t);
+  return `rgb(${c.r}, ${c.g}, ${c.b})`;
+}
+
+// ===== Urgency & Heat Map =====
+// Each stage gets an urgency score. The heat overlay uses radial gradients
+// positioned at each column center, with intensity proportional to urgency.
+// Urgency sources: recent transition, contested/lost state, cascade pressure, decay.
+
+const urgencyState = {
+  scores: [0, 0, 0, 0],
+  // Track recent transitions for spike urgency
+  transitionAge: [Infinity, Infinity, Infinity, Infinity]
+};
+
+function calculateUrgency(position, state) {
+  const N = position.stages.length;
+  for (let i = 0; i < N; i++) {
+    let u = 0;
+    const s = state.stages[i];
+
+    // Base urgency from state
+    if (s.current === 'contested') u += 0.4;
+    if (s.current === 'lost') u += 0.7;
+
+    // Decay pressure builds urgency even in controlled
+    if (s.current === 'controlled') {
+      u += Math.min(s.controlledTicks / (position.controlDecayTicks || 30), 1) * 0.35;
+    }
+
+    // Cascade incoming pressure
+    for (let j = 0; j < N; j++) {
+      if (j === i) continue;
+      const up = position.stages[j];
+      const upState = state.stages[j].current;
+      if ((upState === 'contested' || upState === 'lost') && up.cascadesTo.includes(i)) {
+        u += 0.2;
+      }
+    }
+
+    // Spike from recent transition (fades over ~6 ticks)
+    urgencyState.transitionAge[i]++;
+    const recency = Math.max(0, 1 - urgencyState.transitionAge[i] / 6);
+    u += recency * 0.5;
+
+    urgencyState.scores[i] = Math.min(u, 1.0);
+  }
+}
+
+function updateHeatMap(position, state) {
+  calculateUrgency(position, state);
+  const overlay = document.getElementById('heat-overlay');
+  if (state.terminated) {
+    overlay.style.background = 'none';
+    return;
+  }
+
+  // Build radial gradients — one per stage column
+  // Columns are roughly evenly spaced. The finish meter is the 5th column (narrower).
+  // Column centers: ~10%, ~30%, ~50%, ~70% of container width
+  const centers = [12, 31, 50, 69];
+  const gradients = [];
+
+  for (let i = 0; i < 4; i++) {
+    const u = urgencyState.scores[i];
+    if (u < 0.05) continue;
+
+    // Color shifts from cool amber to hot orange-red with urgency
+    const r = Math.round(180 + u * 75);
+    const g = Math.round(120 - u * 60);
+    const b = Math.round(40 - u * 30);
+    const alpha = u * 0.12;
+
+    // Size: higher urgency = wider glow
+    const size = 20 + u * 25;
+
+    gradients.push(
+      `radial-gradient(ellipse ${size}% 80% at ${centers[i]}% 50%, rgba(${r},${g},${b},${alpha}) 0%, transparent 100%)`
+    );
+  }
+
+  overlay.style.background = gradients.length > 0 ? gradients.join(', ') : 'none';
+}
+
+// ===== Render =====
+function render(position, state) {
+  for (let i = 0; i < position.stages.length; i++) {
+    const stageState = state.stages[i];
+    const states = ['controlled', 'contested', 'lost'];
+    const colEl = document.getElementById(`stage-${i}`);
+
+    // Column glow when tools are active
+    if (stageState.activeTools.length > 0 && !state.terminated) {
+      colEl.classList.add('stage-active');
+    } else {
+      colEl.classList.remove('stage-active');
+    }
+
+    for (const s of states) {
+      const el = document.getElementById(`state-${i}-${s}`);
+
+      if (s === stageState.current) {
+        if (s === 'controlled') {
+          // Apply decay color
+          const decayT = stageState.controlledTicks / (position.controlDecayTicks || 12);
+          el.className = 'state-label state-active';
+          el.style.background = getDecayBg(decayT);
+          el.style.borderColor = getDecayBorder(decayT);
+          el.style.color = getDecayText(decayT);
+          el.style.fontWeight = 'bold';
+        } else {
+          el.className = 'state-label state-active state-' + s;
+          el.style.background = '';
+          el.style.borderColor = '';
+          el.style.color = '';
+          el.style.fontWeight = '';
+        }
+      } else {
+        el.className = 'state-label state-dim';
+        el.style.background = '';
+        el.style.borderColor = '';
+        el.style.color = '';
+        el.style.fontWeight = '';
+      }
+    }
+
+    // Update tools
+    const toolsContainer = document.getElementById(`tools-${i}`);
+    const toolEls = toolsContainer.querySelectorAll('.tool');
+    toolEls.forEach(el => {
+      const isActive = stageState.activeTools.includes(el.textContent);
+      el.className = 'tool' + (isActive ? ' tool-active' : '');
+    });
+  }
+
+  // ===== Heat map overlay =====
+  updateHeatMap(position, state);
+
+  // Finish meter
+  const pct = state.finishProb * 100;
+  document.getElementById('finish-bar').style.height = pct + '%';
+  document.getElementById('finish-pct').textContent = pct.toFixed(0) + '%';
+
+  // Threshold line
+  const threshPct = state.settings.bailThreshold * 100;
+  document.getElementById('finish-threshold').style.bottom = threshPct + '%';
+
+  // Finish detail
+  const counts = { controlled: 0, contested: 0, lost: 0 };
+  state.stages.forEach(s => counts[s.current]++);
+  const parts = [];
+  if (counts.controlled) parts.push(counts.controlled + ' ctrl');
+  if (counts.contested) parts.push(counts.contested + ' cont');
+  if (counts.lost) parts.push(counts.lost + ' lost');
+  document.getElementById('finish-detail').textContent = parts.join(' / ');
+
+  // Stage 5 footer
+  const auxEl = document.getElementById('auxiliary-footer');
+  auxEl.className = 'auxiliary-footer';
+  if (state.terminated && state.finishProb <= state.settings.bailThreshold) {
+    auxEl.classList.add('auxiliary-active');
+  } else if (state.finishProb <= state.settings.bailThreshold * 1.5) {
+    auxEl.classList.add('auxiliary-warning');
+  }
+
+  // Reset button
+  document.getElementById('btn-reset').style.display = state.terminated ? 'inline-block' : 'none';
+
+  // Terminal visuals
+  const meterEl = document.getElementById('finish-bar').parentElement;
+  meterEl.classList.remove('terminal-finish', 'terminal-bail');
+  document.getElementById('label-finish').classList.remove('visible');
+  document.getElementById('label-bail').classList.remove('visible');
+
+  if (state.terminated) {
+    if (state.finishProb >= 0.90) {
+      meterEl.classList.add('terminal-finish');
+      document.getElementById('label-finish').classList.add('visible');
+    } else {
+      meterEl.classList.add('terminal-bail');
+      document.getElementById('label-bail').classList.add('visible');
+    }
+  }
+}
+
+// ===== Core Functions =====
+function calculateFinishProb(position, state) {
+  let prob = 1.0;
+  for (const stage of state.stages) {
+    // Decay reduces effective control weight slightly
+    if (stage.current === 'controlled') {
+      const decayT = stage.controlledTicks / (position.controlDecayTicks || 12);
+      // Weight goes from 1.0 down to 0.85 as control decays
+      prob *= 1.0 - (0.15 * Math.min(decayT, 1));
+    } else {
+      prob *= position.finishWeights[stage.current];
+    }
+  }
+  state.finishProb = prob;
+  return prob;
+}
+
+function init(position) {
+  state.stages = position.stages.map(() => ({
+    current: 'controlled',
+    activeTools: [],
+    controlledTicks: 0
+  }));
+  state.tickCount = 0;
+  state.finishProb = 1.0;
+  state.consecutiveFinishTicks = 0;
+  state.terminated = false;
+  calculateFinishProb(position, state);
+  render(position, state);
+}
+
+// ===== Simulation Engine =====
+function getEffectiveTransitions(position, stageIndex, state) {
+  const stage = position.stages[stageIndex];
+  const base = { ...stage.transitions };
+  const skillMod = (state.settings.attackerSkill - 5) * 0.012;
+  const defMod = (state.settings.defenderSkill - 5) * 0.012;
+
+  base.contested_to_controlled = Math.min(0.95, Math.max(0.05, base.contested_to_controlled + skillMod));
+  base.lost_to_contested = Math.min(0.95, Math.max(0.05, base.lost_to_contested + skillMod));
+  base.controlled_to_contested = Math.min(0.95, Math.max(0.05, base.controlled_to_contested - skillMod));
+  base.contested_to_lost = Math.min(0.95, Math.max(0.05, base.contested_to_lost - skillMod));
+
+  base.controlled_to_contested = Math.min(0.95, Math.max(0.05, base.controlled_to_contested + defMod));
+  base.contested_to_lost = Math.min(0.95, Math.max(0.05, base.contested_to_lost + defMod));
+  base.contested_to_controlled = Math.min(0.95, Math.max(0.05, base.contested_to_controlled - defMod));
+  base.lost_to_contested = Math.min(0.95, Math.max(0.05, base.lost_to_contested - defMod));
+
+  // Cascade modifiers
+  let cascadeMod = 0;
+  for (let i = 0; i < position.stages.length; i++) {
+    if (i === stageIndex) continue;
+    const upstream = position.stages[i];
+    const upstreamState = state.stages[i].current;
+    if ((upstreamState === 'contested' || upstreamState === 'lost') &&
+        upstream.cascadesTo.includes(stageIndex)) {
+      cascadeMod += state.settings.cascadeStrength;
+    }
+  }
+
+  // Decay pressure: the longer you hold controlled, the more likely to slip
+  const stageState = state.stages[stageIndex];
+  if (stageState.current === 'controlled') {
+    const decayPressure = Math.min(stageState.controlledTicks * 0.005, 0.15);
+    base.controlled_to_contested = Math.min(0.95, base.controlled_to_contested + cascadeMod + decayPressure);
+  } else if (stageState.current === 'contested') {
+    base.contested_to_lost = Math.min(0.95, base.contested_to_lost + cascadeMod);
+  }
+
+  return { transitions: base, cascadeMod };
+}
+
+function rollTransition(position, stageIndex, state) {
+  const { transitions, cascadeMod } = getEffectiveTransitions(position, stageIndex, state);
+  const currentState = state.stages[stageIndex].current;
+  const roll = Math.random();
+  let newState = currentState;
+  let cascadeSource = null;
+
+  if (currentState === 'controlled') {
+    if (roll < transitions.controlled_to_contested) newState = 'contested';
+  } else if (currentState === 'contested') {
+    const pRecover = transitions.contested_to_controlled;
+    const pDegrade = Math.min(transitions.contested_to_lost, 1.0 - pRecover);
+    if (roll < pRecover) {
+      newState = 'controlled';
+    } else if (roll < pRecover + pDegrade) {
+      newState = 'lost';
+    }
+  } else if (currentState === 'lost') {
+    if (roll < transitions.lost_to_contested) newState = 'contested';
+  }
+
+  if (cascadeMod > 0 && (
+    (currentState === 'controlled' && newState === 'contested') ||
+    (currentState === 'contested' && newState === 'lost')
+  )) {
+    for (let i = 0; i < position.stages.length; i++) {
+      const upstream = position.stages[i];
+      const upState = state.stages[i].current;
+      if ((upState === 'contested' || upState === 'lost') &&
+          upstream.cascadesTo.includes(stageIndex)) {
+        cascadeSource = position.stages[i].name;
+        break;
+      }
+    }
+  }
+
+  return { previousState: currentState, newState, cascadeSource };
+}
+
+function tick(position, state) {
+  if (state.terminated) return;
+  state.tickCount++;
+  const prevProb = state.finishProb;
+  const logEntries = [];
+
+  for (let i = 0; i < position.stages.length; i++) {
+    const result = rollTransition(position, i, state);
+
+    if (result.newState !== result.previousState) {
+      state.stages[i].current = result.newState;
+      urgencyState.transitionAge[i] = 0; // spike urgency
+
+      // Reset decay counter when entering controlled, or leaving it
+      if (result.newState === 'controlled') {
+        state.stages[i].controlledTicks = 0;
+      }
+
+      // Highlight 1-2 random tools
+      const tools = position.stages[i].tools;
+      const toolCount = Math.random() < 0.5 ? 1 : 2;
+      const shuffled = [...tools].sort(() => Math.random() - 0.5);
+      state.stages[i].activeTools = shuffled.slice(0, Math.min(toolCount, tools.length));
+
+      let entry = `[tick ${state.tickCount}] ${position.stages[i].name}: ${result.previousState} → ${result.newState} (using: ${state.stages[i].activeTools.join(', ')})`;
+      if (result.cascadeSource) {
+        entry += ` [cascade from ${result.cascadeSource}]`;
+      }
+      logEntries.push(entry);
+    } else {
+      // Even without transition, cycle tools to show ongoing battle
+      if (Math.random() < 0.5) {
+        const tools = position.stages[i].tools;
+        const toolCount = Math.random() < 0.5 ? 1 : 2;
+        const shuffled = [...tools].sort(() => Math.random() - 0.5);
+        state.stages[i].activeTools = shuffled.slice(0, Math.min(toolCount, tools.length));
+      }
+    }
+
+    // Increment decay for stages in controlled
+    if (state.stages[i].current === 'controlled') {
+      state.stages[i].controlledTicks++;
+    }
+  }
+
+  calculateFinishProb(position, state);
+
+  if (Math.abs(state.finishProb - prevProb) > 0.001) {
+    logEntries.push(`[tick ${state.tickCount}] Finish probability: ${(prevProb * 100).toFixed(0)}% → ${(state.finishProb * 100).toFixed(0)}%`);
+  }
+
+  if (state.finishProb >= 0.90) {
+    state.consecutiveFinishTicks++;
+    if (state.consecutiveFinishTicks >= 5) {
+      state.terminated = true;
+      stopSimulation();
+      logEntries.push(`[tick ${state.tickCount}] ★ FINISH — Submission complete!`);
+      scheduleAutoReset();
+    }
+  } else {
+    state.consecutiveFinishTicks = 0;
+  }
+
+  if (!state.terminated && state.finishProb <= state.settings.bailThreshold) {
+    state.terminated = true;
+    stopSimulation();
+    logEntries.push(`[tick ${state.tickCount}] ✕ BAIL — Switch to auxiliary (finish prob ${(state.finishProb * 100).toFixed(0)}% ≤ ${(state.settings.bailThreshold * 100).toFixed(0)}%)`);
+    scheduleAutoReset();
+  }
+
+  appendLog(logEntries);
+  render(position, state);
+}
+
+// ===== Event Log =====
+function appendLog(entries) {
+  const logEl = document.getElementById('event-log');
+  for (const entry of entries) {
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    if (entry.includes('★ FINISH')) div.classList.add('log-finish');
+    else if (entry.includes('✕ BAIL')) div.classList.add('log-bail');
+    else if (entry.includes('Finish probability:')) div.classList.add('log-prob');
+    else if (entry.includes('[cascade from')) div.classList.add('log-cascade');
+    div.textContent = entry;
+    logEl.insertBefore(div, logEl.firstChild);
+  }
+}
+
+// ===== Controls =====
+function startSimulation() {
+  if (state.terminated || state.running) return;
+  state.running = true;
+  const interval = 1000 / state.settings.speed;
+  state.intervalId = setInterval(() => tick(positions.backAttacks, state), interval);
+  updateControlButtons();
+}
+
+function stopSimulation() {
+  state.running = false;
+  if (state.intervalId) {
+    clearInterval(state.intervalId);
+    state.intervalId = null;
+  }
+  updateControlButtons();
+}
+
+function stepSimulation() {
+  if (state.terminated) return;
+  if (state.running) stopSimulation();
+  tick(positions.backAttacks, state);
+}
+
+let autoResetTimeout = null;
+
+function scheduleAutoReset() {
+  if (autoResetTimeout) clearTimeout(autoResetTimeout);
+  autoResetTimeout = setTimeout(() => {
+    resetSimulation();
+  }, 3000);
+}
+
+function resetSimulation() {
+  if (autoResetTimeout) { clearTimeout(autoResetTimeout); autoResetTimeout = null; }
+  stopSimulation();
+  init(positions.backAttacks);
+  document.getElementById('event-log').innerHTML = '';
+  appendLog(['— New round —']);
+  startSimulation();
+}
+
+function updateControlButtons() {
+  const playBtn = document.getElementById('btn-play');
+  playBtn.textContent = state.running ? '⏸' : '▶';
+  document.getElementById('btn-reset').style.display = state.terminated ? 'inline-block' : 'none';
+}
+
+// ===== Settings =====
+function toggleSettings() {
+  const modal = document.getElementById('settings-modal');
+  modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+}
+
+function updateSetting(key, value, displayEl) {
+  if (key === 'speed') {
+    state.settings.speed = parseFloat(value);
+    displayEl.textContent = value + 'x';
+    if (state.running) {
+      clearInterval(state.intervalId);
+      state.intervalId = setInterval(() => tick(positions.backAttacks, state), 1000 / state.settings.speed);
+    }
+  } else if (key === 'attackerSkill' || key === 'defenderSkill') {
+    state.settings[key] = parseInt(value);
+    displayEl.textContent = value;
+  } else if (key === 'cascadeStrength') {
+    state.settings.cascadeStrength = parseFloat(value);
+    displayEl.textContent = value;
+  } else if (key === 'bailThreshold') {
+    state.settings.bailThreshold = parseFloat(value);
+    displayEl.textContent = (parseFloat(value) * 100).toFixed(0) + '%';
+    render(positions.backAttacks, state);
+  }
+}
+
+// ===== Init + Autoplay =====
+init(positions.backAttacks);
+startSimulation();
+</script>
+
+</body>
+</html>
